@@ -34,3 +34,12 @@
 
 ## Important constraints
 This is not a Lightroom clone. JPEG correction cannot reconstruct blown pixels or baked-in sharpening halos. An XMP import is not proof of automated adjustment of existing Lightroom Mobile images. Original files are never changed by the Android v0.1 implementation.
+
+## v0.1.2 — explanation-first editing
+- Human-readable purpose-based edit labels and explanations.
+- Copy a slider checklist for a manual Lightroom edit without importing another preset.
+- Optional XMP with editable descriptive name and explicit warning for bulk export.
+- Direct Lightroom UI control is still unavailable; future Android accessibility experiments require consent, calibration, UI version checks and no blanket access to the device.
+
+## Feasibility of direct control
+Adobe's Lightroom Partner API requires partner entitlement and user OAuth and does not inherently grant unrestricted direct slider control on an Android phone. A separate experimental Android AccessibilityService might perform gestures on visible Lightroom controls, subject to user permission and exact UI recognition; never run hidden/unsupervised.

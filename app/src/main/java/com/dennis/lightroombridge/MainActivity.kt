@@ -3,6 +3,9 @@ package com.dennis.lightroombridge
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
+import android.content.Context
+import android.content.ClipboardManager
+import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -15,6 +18,7 @@ import android.provider.OpenableColumns
 import android.view.Gravity
 import android.view.View
 import android.widget.ImageView
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -23,6 +27,7 @@ import com.dennis.lightroombridge.core.PhotoAnalyzer
 import com.dennis.lightroombridge.core.PhotoStats
 import com.dennis.lightroombridge.core.SuggestedEdit
 import com.dennis.lightroombridge.core.XmpPreset
+import com.dennis.lightroombridge.core.EditPresentation
 import java.util.concurrent.Executors
 import kotlin.math.max
 
@@ -46,6 +51,8 @@ class MainActivity : Activity() {
     private lateinit var counter: TextView
     private lateinit var status: TextView
     private lateinit var metrics: TextView
+    private lateinit var lookTitle: TextView
+    private lateinit var lookDetail: TextView
     private lateinit var settings: TextView
 
     companion object {
@@ -101,7 +108,7 @@ class MainActivity : Activity() {
         scroll.addView(root); setContentView(scroll)
         root.addBlock(label("DENNIS  /  PHOTO SYSTEMS",11f,mint,true),bottom=8)
         root.addBlock(label("Lightroom Bridge",29f,white,true),bottom=4)
-        root.addBlock(label("PHOTO-SPECIFIC XMP  •  OFFLINE ENGINE v0.1.1",11f,muted),bottom=16)
+        root.addBlock(label("GUIDED EDITING  •  OFFLINE ENGINE v0.1.2",11f,muted),bottom=16)
         root.addBlock(button("SELECT PHOTOS",true) { choosePhotos() },bottom=10)
         root.addBlock(row(
             button("PREVIOUS") { navigate(-1) },
@@ -118,6 +125,11 @@ class MainActivity : Activity() {
         counter=label("0 / 0",12f,muted)
         root.addBlock(filename,top=14)
         root.addBlock(counter,top=3)
+        root.addBlock(label("WHAT THIS EDIT IS FOR",11f,muted,true),top=17,bottom=6)
+        lookTitle=label("Choose a photograph",18f,mint,true)
+        root.addBlock(lookTitle)
+        lookDetail=label("Your adjustment plan will be explained here.",13f,muted)
+        root.addBlock(lookDetail,top=5)
         status=label("",13f,mint)
         root.addBlock(status,top=12)
         root.addBlock(label("IMAGE ASSESSMENT",11f,muted,true),top=23,bottom=8)
@@ -128,10 +140,13 @@ class MainActivity : Activity() {
         settings=label("Select a photo to calculate settings.",13f,white)
         settings.setPadding(dp(14),dp(12),dp(14),dp(12)); settings.background=style()
         root.addBlock(settings)
-        root.addBlock(button("SAVE THIS PHOTO'S XMP PRESET",true) { saveSelectedPreset() },top=16)
-        root.addBlock(button("EXPORT XMP PRESETS FOR ALL SELECTED PHOTOS") { chooseExportFolder() },top=9)
-        root.addBlock(button("LIGHTROOM IMPORT INSTRUCTIONS") { showImportSteps() },top=9)
-        root.addBlock(label("Non-destructive workflow: originals are never modified. Preset import into Lightroom is a separate user action.",12f,muted),top=16)
+        root.addBlock(button("COPY SETTINGS — NO PRESET CREATED",true) { copySettings() },top=16)
+        root.addBlock(button("OPEN LIGHTROOM") { openLightroom() },top=9)
+        root.addBlock(label("For everyday photos, copy the settings and follow the values in Lightroom. This creates no presets.",12f,muted),top=9)
+        root.addBlock(button("SAVE NAMED XMP PRESET (OPTIONAL)") { saveSelectedPreset() },top=16)
+        root.addBlock(button("ADVANCED: EXPORT ALL XMP PRESETS") { confirmBatchExport() },top=9)
+        root.addBlock(button("LIGHTROOM INSTRUCTIONS") { showImportSteps() },top=9)
+        root.addBlock(label("XMP imports create entries in your Lightroom presets library. Save them only for looks you want to reuse.",12f,muted),top=16)
     }
 
     private fun choosePhotos() {
@@ -185,6 +200,8 @@ class MainActivity : Activity() {
         filename.text=photo.title
         counter.text="${selected+1} / ${photos.size} selected"
         status.text="Analysing image offline…"
+        lookTitle.text="Analysing selected photo…"
+        lookDetail.text=""
         worker.execute {
             try {
                 val (bitmap,result)=analyzePhoto(photo.uri)
@@ -192,12 +209,15 @@ class MainActivity : Activity() {
                     if(sequence!=loadSequence) { bitmap.recycle(); return@runOnUiThread }
                     hero.setImageBitmap(bitmap)
                     val (stats,edit)=result
+                    val identity=EditPresentation.label(stats)
+                    lookTitle.text=identity.title
+                    lookDetail.text=identity.explanation
                     val notes=stats.notes.joinToString("\n• ",prefix="• ")
                     metrics.text="Luminance  P05 %.2f  •  P50 %.2f  •  P95 %.2f\nClipped bright pixels %.1f%%  •  Dominant green %.1f%%\n\n%s".format(
                         java.util.Locale.US,stats.lumaP05,stats.lumaP50,stats.lumaP95,
                         stats.highlightClippedFraction*100,stats.greenFraction*100,notes)
-                    settings.text=edit.settings.entries.joinToString("\n") { (key,value) -> "${friendlyName(key)}   $value" }
-                    status.text="Ready — tailored XMP adjustment calculated"
+                    settings.text=EditPresentation.settingsText(edit)
+                    status.text="Ready — guided editing recommended (no preset required)"
                 }
             } catch(t:Throwable) {
                 runOnUiThread { if(sequence==loadSequence) {
@@ -208,19 +228,38 @@ class MainActivity : Activity() {
             }
         }
     }
-    private fun friendlyName(key: String):String=when(key) {
-        "Exposure2012"->"Exposure"; "Contrast2012"->"Contrast"; "Highlights2012"->"Highlights"
-        "Shadows2012"->"Shadows"; "Whites2012"->"Whites"; "Blacks2012"->"Blacks"
-        "Clarity2012"->"Clarity"; "SaturationAdjustmentGreen"->"Green saturation"
-        "SaturationAdjustmentYellow"->"Yellow saturation"; "SaturationAdjustmentAqua"->"Aqua saturation"
-        "HueAdjustmentGreen"->"Green hue"; "SharpenEdgeMasking"->"Sharpen masking"
-        "LuminanceSmoothing"->"Luminance noise reduction"; "ColorNoiseReduction"->"Colour noise reduction"
-        else->key
+    /** Copies human-readable values, not machine-readable Lightroom settings. */
+    private fun copySettings() {
+        if (photos.isEmpty()) { toast("Select a photo first"); return }
+        val photo=photos[selected]
+        val result=synchronized(cache) { cache[photo.uri] }
+        if (result==null) { toast("Photo is still being analysed"); return }
+        val text=EditPresentation.checklist(result.first,result.second,photo.title)
+        val clipboard=getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("Dennis Lightroom Edit",text))
+        status.text="Slider guide copied — no XMP preset created."
+        toast("Slider guide copied. Open Lightroom to adjust the photo.")
     }
-    private fun xmpFilename(title:String,position:Int):String {
-        val stem=title.substringBeforeLast('.',title).replace(Regex("[^A-Za-z0-9_-]+"),"_").take(55).ifBlank { "image" }
-        return "DLB_%03d_%s.xmp".format(java.util.Locale.US,position+1,stem)
+
+    private fun openLightroom() {
+        val launch=packageManager.getLaunchIntentForPackage("com.adobe.lrmobile")
+        if (launch!=null) {
+            try { startActivity(launch) } catch (_: ActivityNotFoundException) {
+                toast("Unable to open Lightroom automatically — open it manually.")
+            }
+        } else toast("Lightroom not found — please open Adobe Lightroom manually.")
     }
+
+    private fun confirmBatchExport() {
+        if (photos.isEmpty()) { toast("Select photos first"); return }
+        AlertDialog.Builder(this)
+            .setTitle("Export ${photos.size} separate presets?")
+            .setMessage("Importing all these XMP files creates a separate preset for each photo in Lightroom. This can clutter your library. For ordinary editing, use COPY SETTINGS instead.")
+            .setNegativeButton("CANCEL", null)
+            .setPositiveButton("EXPORT ANYWAY") { _,_ -> chooseExportFolder() }
+            .show()
+    }
+
     /** Some file providers append .xml, .rdf or .bin based on the MIME type.
      *  Retain a true .xmp filename for Lightroom's preset file picker. */
     private fun ensureXmpName(uri: Uri, requested: String): Pair<Uri,String> {
@@ -243,13 +282,29 @@ class MainActivity : Activity() {
         val current=photos[selected]
         val result=synchronized(cache) { cache[current.uri] }
         if(result==null) { toast("Analysis is still running"); return }
-        val title="Dennis Auto • ${current.title.substringBeforeLast('.',current.title)}"
-        pendingPreset=xmpFilename(current.title,selected) to XmpPreset.generate(title,result.second)
-        val i=Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE); type="application/octet-stream"
-            putExtra(Intent.EXTRA_TITLE,pendingPreset!!.first)
+        val suggested=EditPresentation.presetTitle(result.first)
+        val nameInput=EditText(this).apply {
+            setSingleLine(true)
+            setText(suggested)
+            setSelection(text.length)
+            setPadding(dp(12),dp(10),dp(12),dp(10))
         }
-        startActivityForResult(i,SAVE_PRESET)
+        AlertDialog.Builder(this)
+            .setTitle("Name this reusable edit")
+            .setMessage("Describe what the preset does. Importing it creates a preset entry in Lightroom. Use COPY SETTINGS for one-off edits instead.")
+            .setView(nameInput)
+            .setNegativeButton("CANCEL",null)
+            .setPositiveButton("SAVE XMP") { _,_ ->
+                val userName=nameInput.text.toString().trim().take(120).ifBlank { suggested }
+                val filename=EditPresentation.fileName(result.first,current.title)
+                pendingPreset=filename to XmpPreset.generate(userName,result.second)
+                val intent=Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type="application/octet-stream"
+                    putExtra(Intent.EXTRA_TITLE,filename)
+                }
+                startActivityForResult(intent,SAVE_PRESET)
+            }.show()
     }
     private fun chooseExportFolder() {
         if(photos.isEmpty()) { toast("Select photos first"); return }
@@ -257,7 +312,7 @@ class MainActivity : Activity() {
     }
     private fun showImportSteps() {
         AlertDialog.Builder(this).setTitle("Import into Lightroom Mobile")
-            .setMessage("1. Save a .xmp preset using this app.\n\n2. Open Lightroom and choose the photo to edit.\n\n3. Tap Presets → Yours → ⋯ → Import Presets.\n\n4. Browse to the saved .xmp file, import and apply it.\n\n5. Review Exposure and White Balance.\n\nLightroom controls the final photo export; this app does not modify the original.")
+            .setMessage("GUIDED EDIT (no presets):\n1. Select a photo in Bridge and tap COPY SETTINGS.\n2. Open the matching photo in Lightroom.\n3. Use the named sliders in Light, Color, Effects and Detail.\n4. Enter target values manually. These are absolute values, not increments.\n\nOPTIONAL REUSABLE PRESET:\nSave a named XMP, then Lightroom → Presets → Yours → menu → Import Presets.\n\nTo use the same successful edit on more photos: Lightroom More → Copy Settings, then Paste Settings on other photos.")
             .setPositiveButton("DONE",null).show()
     }
     private fun toast(msg:String) { Toast.makeText(this,msg,Toast.LENGTH_LONG).show() }
@@ -310,9 +365,9 @@ class MainActivity : Activity() {
                         val badNames=mutableListOf<String>()
                         for((i,p) in copy.withIndex()) {
                             val result=analyzePhoto(p.uri).second
-                            val title="Dennis Auto • ${p.title.substringBeforeLast('.',p.title)}"
+                            val title=EditPresentation.presetTitle(result.first)
                             val contents=XmpPreset.generate(title,result.second)
-                            val wanted=xmpFilename(p.title,i)
+                            val wanted=EditPresentation.fileName(result.first,p.title)
                             val output=DocumentsContract.createDocument(contentResolver,dir,"application/octet-stream",wanted)
                                 ?: error("Could not create preset document")
                             val (safeOutput,actualName)=ensureXmpName(output,wanted)

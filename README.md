@@ -1,38 +1,31 @@
-# Dennis Lightroom Bridge — Android v0.1.0
+# Dennis Lightroom Bridge — Android v0.1.2
 
-**Development build:** Offline-first Android companion that analyses photos and generates individual Adobe Lightroom-compatible XMP develop presets. This is an initial source release. **An APK build and Lightroom Mobile import still require verification.**
+Offline Android companion for Lightroom Mobile editing assistance. v0.1.2 focuses on **descriptive edit names and a preset-free workflow**.
 
-## Features
-- Select individual or multiple JPEG/HEIC photos through Android's system document picker.
-- Offline image analysis: luminance percentiles, clipped highlights, dark regions, green dominance.
-- Create a per-photo XMP preset with constrained tone, colour, sharpening and noise-reduction settings.
-- Save one XMP preset or export presets for all selected photos into a chosen folder.
-- Navigate selected photos and inspect proposed numerical Lightroom settings.
-- Dark interface and project icon; app ID: `com.dennis.lightroombridge`.
-- No internet permission, Adobe credentials, surveillance or global storage access.
+## Quick start — no preset clutter
+1. Select one or more local JPEG/HEIC photos using Android's document picker.
+2. Tap a photo to view its descriptive edit intent, e.g. **Natural Greens • Shadow Lift**, and a plain-language explanation.
+3. Tap **COPY SETTINGS — NO PRESET CREATED**. This copies human-readable Lightroom target values to the Android clipboard.
+4. Tap **OPEN LIGHTROOM**, open the *same* photo, and manually enter the displayed target values in Light, Colour/Mix, Effects and Detail. You can switch between the apps to inspect the values.
+5. If the edit suits several photos, use Lightroom's official **Copy Settings / Paste Settings** command between them.
 
-## Build and install
-1. Open the [Android APK workflow](https://github.com/dennisp5-alt/Lightroom-Bridge-/actions/workflows/android.yml).
-2. Use **Run workflow** if an APK has not been built automatically.
-3. Open the successful run and download artifact **Dennis-Lightroom-Bridge-v0.1.0-debug-apk**.
-4. Extract the artifact ZIP and install `app-debug.apk` on Android.
-5. If Actions reports an exhausted quota or storage restriction, use Android Studio with JDK 17, AGP 8.9.2, Gradle 8.11.1, SDK 35 and run `gradle :app:assembleDebug`.
+**Important:** Copy Settings in the Bridge copies *text*, not Lightroom's internal develop settings. It does **not** remotely apply changes. Lightroom's own Copy/Paste works after you have applied the first edit in Lightroom.
 
-**Artifact retention:** two days to reduce GitHub Actions storage usage. APK is debug-signed for testing, not a Play Store release. If a build fails, review the run logs before trying to install anything.
+## Optional XMP
+- **SAVE NAMED XMP PRESET** asks for an understandable preset name (default based on luminance and colour, not a camera filename).
+- **ADVANCED: EXPORT ALL XMP PRESETS** requires confirmation, because importing many presets causes clutter.
+- Do not import individual XMPs for every photo unless you explicitly want to keep them. Lightroom's own preset manager handles deleting, renaming and organising imported presets.
+- XMP import is a manual Lightroom action; no Adobe cloud write or library access yet.
 
-## Use
-1. Tap **Select Photos**. Choose one or more local photos.
-2. Review the per-photo suggested adjustments.
-3. Tap **Save This Photo's XMP Preset** or **Export XMP Presets for All Selected Photos**.
-4. In Lightroom Mobile select a photograph, go to Presets → Yours → menu → Import Presets, and select the saved `.xmp` file.
-5. Apply it and compare before/after. Lightroom controls the rendered appearance and final full-resolution export.
+## Build
+Open the [GitHub Actions APK workflow](https://github.com/dennisp5-alt/Lightroom-Bridge-/actions/workflows/android.yml), run it or use its latest successful automatic run. Download the `Dennis-Lightroom-Bridge-v0.1.2-debug-apk` artifact, extract its ZIP and install the APK.
 
-XMP settings may overwrite **matching existing develop settings**, although the image original is untouched. Do not assume the preset can recover image data lost by phone JPEG processing.
+Android: minimum 26; compileSdk 35; debug app ID `com.dennis.lightroombridge`; source and Java 17 build in this repository. APK is a testing build.
 
-## Scope and honesty
-This v0.1 implementation is **histogram-based heuristic analysis**, not image-understanding AI, RAW processing or a live Lightroom render. It **does not** access Adobe's cloud albums, read private Lightroom databases, sync to Lightroom, or operate Lightroom sliders. Adobe's partner API permissions and safe cloud-write round-trip need separate development and testing.
-
-No Adobe API credentials belong in source control, especially while this repository is public. See [docs/ROADMAP.md](docs/ROADMAP.md).
-
-## Quality testing
-The pure Kotlin engine has been compiled and run separately with a test JPEG, and the XMP parsed as XML. The Android app itself still needs CI compilation and device testing. Use a disposable photo for the first Lightroom import.
+## Privacy and reliability
+- No network permission, no Adobe passwords and no access to Lightroom's private database.
+- No original JPEG/HEIC file is edited by the app.
+- Histogram-derived edits are conservative **heuristics**, not subject detection or an actual Lightroom-rendered preview.
+- Names represent measurable tone/green tendencies; they never pretend to recognise a landscape/portrait/sky.
+- Applying imported XMP edits may replace corresponding current develop adjustments in Lightroom.
+- Direct Lightroom slider gestures are **not implemented**. An optional Android AccessibilityService control prototype may be investigated later with explicit user consent and on-device calibration; it would be fragile across Lightroom UI updates and would not grant Adobe cloud-account access.

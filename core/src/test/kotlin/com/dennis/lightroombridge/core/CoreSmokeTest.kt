@@ -33,5 +33,17 @@ fun main() {
     check(doc.getElementsByTagNameNS(crs, "Group").length == 1)
     check(xml.toByteArray(Charsets.UTF_8)[0] == '<'.code.toByte())
 
+    val darkGreen=IntArray(100*100) { i ->
+        if (i % 7 == 0) 0xFF101010.toInt() else 0xFF267A25.toInt()
+    }
+    val (greenStats, greenEdit)=PhotoAnalyzer.analyze(darkGreen,100,100)
+    val name=EditPresentation.label(greenStats)
+    check(name.title.contains("Natural Greens")) { "Look must explain green-heavy scene" }
+    check(EditPresentation.presetTitle(greenStats).startsWith("DLB"))
+    check(EditPresentation.fileName(greenStats,"IMG_1234.jpg").endsWith(".xmp"))
+    val guide=EditPresentation.checklist(greenStats,greenEdit,"IMG_1234.jpg")
+    check(guide.contains("NO PRESET") || guide.contains("GUIDED EDIT"))
+    check(guide.contains("Exposure") && guide.contains("Green saturation"))
+    check(guide.contains("TARGET slider values"))
     println("PASS: core histograms, constrained settings and well-formed XMP metadata")
 }
