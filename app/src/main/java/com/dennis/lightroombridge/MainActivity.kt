@@ -101,7 +101,7 @@ class MainActivity : Activity() {
         scroll.addView(root); setContentView(scroll)
         root.addBlock(label("DENNIS  /  PHOTO SYSTEMS",11f,mint,true),bottom=8)
         root.addBlock(label("Lightroom Bridge",29f,white,true),bottom=4)
-        root.addBlock(label("PHOTO-SPECIFIC XMP  •  OFFLINE ENGINE v0.1",11f,muted),bottom=16)
+        root.addBlock(label("PHOTO-SPECIFIC XMP  •  OFFLINE ENGINE v0.1.1",11f,muted),bottom=16)
         root.addBlock(button("SELECT PHOTOS",true) { choosePhotos() },bottom=10)
         root.addBlock(row(
             button("PREVIOUS") { navigate(-1) },
@@ -221,6 +221,23 @@ class MainActivity : Activity() {
         val stem=title.substringBeforeLast('.',title).replace(Regex("[^A-Za-z0-9_-]+"),"_").take(55).ifBlank { "image" }
         return "DLB_%03d_%s.xmp".format(java.util.Locale.US,position+1,stem)
     }
+    /** Some file providers append .xml, .rdf or .bin based on the MIME type.
+     *  Retain a true .xmp filename for Lightroom's preset file picker. */
+    private fun ensureXmpName(uri: Uri, requested: String): Pair<Uri,String> {
+        val initial = displayName(uri)
+        if (initial.endsWith(".xmp", ignoreCase = true)) return uri to initial
+        return try {
+            val renamed = DocumentsContract.renameDocument(contentResolver, uri, requested)
+            if (renamed != null) renamed to displayName(renamed)
+            else uri to initial
+        } catch (_: Exception) {
+            uri to initial
+        }
+    }
+    private fun warnAboutXmpName(name: String): String =
+        if (name.endsWith(".xmp", ignoreCase = true)) "Saved $name — ready for Lightroom import."
+        else "Saved as $name. Rename the file to end in .xmp using My Files before importing."
+
     private fun saveSelectedPreset() {
         if(photos.isEmpty()) { toast("Select a photo first"); return }
         val current=photos[selected]
@@ -229,7 +246,7 @@ class MainActivity : Activity() {
         val title="Dennis Auto • ${current.title.substringBeforeLast('.',current.title)}"
         pendingPreset=xmpFilename(current.title,selected) to XmpPreset.generate(title,result.second)
         val i=Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE); type="application/rdf+xml"
+            addCategory(Intent.CATEGORY_OPENABLE); type="application/octet-stream"
             putExtra(Intent.EXTRA_TITLE,pendingPreset!!.first)
         }
         startActivityForResult(i,SAVE_PRESET)
@@ -271,11 +288,13 @@ class MainActivity : Activity() {
             SAVE_PRESET -> {
                 val target=data.data ?: return
                 val contents=pendingPreset?.second ?: return
+                val wanted=pendingPreset?.first ?: return
                 try {
-                    contentResolver.openOutputStream(target,"w")?.bufferedWriter(Charsets.UTF_8)?.use { it.write(contents) }
+                    val (safeTarget,actualName)=ensureXmpName(target,wanted)
+                    contentResolver.openOutputStream(safeTarget,"w")?.bufferedWriter(Charsets.UTF_8)?.use { it.write(contents) }
                         ?: error("Cannot write selected file")
-                    status.text="Preset saved. Import it in Lightroom Mobile."
-                    toast("XMP saved successfully")
+                    status.text=warnAboutXmpName(actualName)
+                    toast(if(actualName.endsWith(".xmp",true)) "XMP saved successfully" else "Check file extension: $actualName")
                 } catch(t:Exception) { status.text="Export error: ${t.message}" }
                 finally { pendingPreset=null }
             }
@@ -288,17 +307,25 @@ class MainActivity : Activity() {
                         val treeId=DocumentsContract.getTreeDocumentId(tree)
                         val dir=DocumentsContract.buildDocumentUriUsingTree(tree,treeId)
                         var saved=0
+                        val badNames=mutableListOf<String>()
                         for((i,p) in copy.withIndex()) {
                             val result=analyzePhoto(p.uri).second
                             val title="Dennis Auto • ${p.title.substringBeforeLast('.',p.title)}"
                             val contents=XmpPreset.generate(title,result.second)
-                            val output=DocumentsContract.createDocument(contentResolver,dir,"application/rdf+xml",xmpFilename(p.title,i))
+                            val wanted=xmpFilename(p.title,i)
+                            val output=DocumentsContract.createDocument(contentResolver,dir,"application/octet-stream",wanted)
                                 ?: error("Could not create preset document")
-                            contentResolver.openOutputStream(output,"w")?.bufferedWriter(Charsets.UTF_8)?.use { it.write(contents) }
+                            val (safeOutput,actualName)=ensureXmpName(output,wanted)
+                            contentResolver.openOutputStream(safeOutput,"w")?.bufferedWriter(Charsets.UTF_8)?.use { it.write(contents) }
                                 ?: error("Could not write preset")
+                            if (!actualName.endsWith(".xmp",true)) badNames += actualName
                             saved++
                         }
-                        runOnUiThread { status.text="Export complete: $saved XMP presets saved"; toast("Saved $saved XMP presets") }
+                        runOnUiThread {
+                            status.text=if(badNames.isEmpty()) "Export complete: $saved XMP presets saved"
+                                else "Export complete: $saved files. Some need renaming to .xmp: ${badNames.joinToString(", ")}"
+                            toast("Saved $saved presets")
+                        }
                     } catch(t:Throwable) {
                         runOnUiThread { status.text="Export stopped: ${t.message}" }
                     }
