@@ -22,5 +22,16 @@ fun main() {
     check(desc.attributes.getNamedItemNS("http://ns.adobe.com/camera-raw-settings/1.0/","PresetType").nodeValue == "Normal")
     check(doc.documentElement.textContent.contains("A & B <landscape>"))
     check(xml.contains("00000000000000000000000000000001"))
+    check(xml.startsWith("<x:xmpmeta")) { "Must not prepend Unicode BOM or packet wrapper" }
+    check(!xml.contains("<?xpacket")) { "Avoid legacy XMP packet wrapper" }
+    val crs = "http://ns.adobe.com/camera-raw-settings/1.0/"
+    check(desc.attributes.getNamedItemNS(crs,"Cluster").nodeValue == "")
+    check(desc.attributes.getNamedItemNS(crs,"SupportsSceneReferred").nodeValue == "True")
+    check(desc.attributes.getNamedItemNS(crs,"HasSettings").nodeValue == "True")
+    check(desc.attributes.getNamedItemNS(crs,"Exposure2012") != null)
+    check(doc.getElementsByTagNameNS(crs, "Name").length == 1)
+    check(doc.getElementsByTagNameNS(crs, "Group").length == 1)
+    check(xml.toByteArray(Charsets.UTF_8)[0] == '<'.code.toByte())
+
     println("PASS: core histograms, constrained settings and well-formed XMP metadata")
 }
