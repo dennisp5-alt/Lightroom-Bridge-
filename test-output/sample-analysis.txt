@@ -1,0 +1,23 @@
+SOURCE: 1000038011.jpg 1152x1536; samples=49152
+P05=0.082 P50=0.443 P95=0.831 clipped=0.00% green=23.7%
+Exposure2012=+0.01
+Contrast2012=6
+Highlights2012=-17
+Shadows2012=22
+Whites2012=+5
+Blacks2012=-9
+Texture=+5
+Clarity2012=+4
+Dehaze=+2
+Vibrance=+7
+Saturation=-2
+SaturationAdjustmentGreen=-7
+SaturationAdjustmentYellow=-6
+SaturationAdjustmentAqua=-3
+HueAdjustmentGreen=-3
+Sharpness=17
+SharpenRadius=1.0
+SharpenDetail=18
+SharpenEdgeMasking=65
+LuminanceSmoothing=6
+ColorNoiseReduction=20
