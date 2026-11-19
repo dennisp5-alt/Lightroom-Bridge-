@@ -1,0 +1,52 @@
+name: Dennis Performance Trial — Shizuku APK
+on:
+  push:
+    branches: ['experiment/shizuku-camera-lightroom-v010']
+    paths:
+      - 'shizuku-per-app-test/**'
+      - '.github/workflows/shizuku-performance-trial.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android 35 SDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Compile APK
+        working-directory: shizuku-per-app-test
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify APK
+        run: |
+          test -s shizuku-per-app-test/app/build/outputs/apk/debug/app-debug.apk
+          $ANDROID_HOME/build-tools/35.0.0/aapt dump badging shizuku-per-app-test/app/build/outputs/apk/debug/app-debug.apk | grep -E "package:|launchable-activity:"
+          cp shizuku-per-app-test/app/build/outputs/apk/debug/app-debug.apk Dennis-Performance-Trial-v0.1.0.apk
+          sha256sum Dennis-Performance-Trial-v0.1.0.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Dennis-Performance-Trial-v0.1.0
+          path: Dennis-Performance-Trial-v0.1.0.apk
+          retention-days: 30
+      - name: Publish isolated trial release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="dennis-performance-trial-v0.1.0"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" Dennis-Performance-Trial-v0.1.0.apk --clobber
+          else
+            gh release create "$TAG" Dennis-Performance-Trial-v0.1.0.apk --prerelease --target "$GITHUB_SHA" \
+              --title "Dennis Performance Trial v0.1.0 (Shizuku)" \
+              --notes "Standalone Shizuku experiment for stock Samsung Camera and Lightroom Mobile. Background exemption only; no GPU/CPU boost. Inspect, test, restore. Experimental APK."
+          fi
