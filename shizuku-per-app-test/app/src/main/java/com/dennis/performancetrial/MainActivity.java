@@ -2,6 +2,9 @@ package com.dennis.performancetrial;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.ComponentName;
+import android.content.ServiceConnection;
+import android.os.IBinder;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.PowerManager;
@@ -24,7 +27,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Pattern;
 import rikka.shizuku.Shizuku;
-import rikka.shizuku.ShizukuRemoteProcess;
+
 
 /**
  * Narrow, user-controlled Shizuku A/B trial. This does NOT accelerate another app's CPU/GPU
@@ -41,18 +44,35 @@ public final class MainActivity extends Activity {
     private final String[] names={"Samsung Camera","Lightroom Mobile"};
     private final TextView[] report = new TextView[2];
     private TextView access;
+    private volatile ITrialShell shell;
+    private volatile boolean binding;
+    private Shizuku.UserServiceArgs serviceArgs;
+    private final ServiceConnection serviceConnection = new ServiceConnection() {
+        @Override public void onServiceConnected(ComponentName name, IBinder binder) {
+            shell = ITrialShell.Stub.asInterface(binder);
+            binding = false;
+            runOnUiThread(() -> { showAccess(); notice("Shizuku command service ready."); });
+        }
+        @Override public void onServiceDisconnected(ComponentName name) {
+            shell = null;
+            binding = false;
+            runOnUiThread(() -> showAccess());
+        }
+    };
     private LinearLayout content;
     private final Shizuku.OnRequestPermissionResultListener permissionResult =
         (request,grant)->runOnUiThread(()->{ showAccess();
-            if(request==REQ && grant==PackageManager.PERMISSION_GRANTED) notice("Shizuku permission granted. Inspect an app to continue.");
+            if(request==REQ && grant==PackageManager.PERMISSION_GRANTED) { notice("Shizuku permission granted."); bindShell(); }
         });
-    private final Shizuku.OnBinderReceivedListener binderReceived=()->runOnUiThread(this::showAccess);
-    private final Shizuku.OnBinderDeadListener binderDead=()->runOnUiThread(this::showAccess);
+    private final Shizuku.OnBinderReceivedListener binderReceived=()->runOnUiThread(()->{showAccess();bindShell();});
+    private final Shizuku.OnBinderDeadListener binderDead=()->runOnUiThread(()->{shell=null;binding=false;showAccess();});
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);
         build();
+        serviceArgs = new Shizuku.UserServiceArgs(new ComponentName(this, ShellService.class))
+                .processNameSuffix("trial_shell").tag("performance_trial").daemon(false).version(1);
         try {
             Shizuku.addRequestPermissionResultListener(permissionResult);
             Shizuku.addBinderReceivedListenerSticky(binderReceived);
@@ -67,6 +87,8 @@ public final class MainActivity extends Activity {
             Shizuku.removeBinderDeadListener(binderDead);
         }catch(RuntimeException ignored){}
         worker.shutdownNow();
+        try { if(serviceArgs!=null && ready()) Shizuku.unbindUserService(serviceArgs,serviceConnection,true); }
+        catch(RuntimeException ignored){}
         super.onDestroy();
     }
     private LinearLayout column() {
@@ -178,13 +200,13 @@ public final class MainActivity extends Activity {
             granted=running&&Shizuku.checkSelfPermission()==PackageManager.PERMISSION_GRANTED;
         }catch(RuntimeException ignored){}
         access.setText(!running?"Not running. Start Shizuku on the phone first.":
-            granted?"Connected. Permission granted. Ready for inspection.":"Running. Tap the permission button.");
+            granted?(shell!=null?"Connected. Command service ready.": "Authorised. Start command service to inspect apps."):"Running. Tap the permission button.");
         access.setTextColor(granted?GREEN:WARN);
     }
     private void requestShizuku(){
         try {
             if(!Shizuku.pingBinder()){notice("Start Shizuku via Wireless debugging, then reopen this screen.");return;}
-            if(Shizuku.checkSelfPermission()==PackageManager.PERMISSION_GRANTED){notice("Already authorised.");showAccess();return;}
+            if(Shizuku.checkSelfPermission()==PackageManager.PERMISSION_GRANTED){bindShell();return;}
             if(Shizuku.shouldShowRequestPermissionRationale()){
                 notice("Permission was denied. Open Shizuku → Authorised applications to grant access.");
                 return;
@@ -192,8 +214,22 @@ public final class MainActivity extends Activity {
             Shizuku.requestPermission(REQ);
         }catch(RuntimeException e){notice("Shizuku: "+message(e));}
     }
+    private void bindShell() {
+        try {
+            if(!Shizuku.pingBinder() || Shizuku.checkSelfPermission()!=PackageManager.PERMISSION_GRANTED)return;
+            if(shell!=null){showAccess();return;}
+            if(binding)return;
+            binding=true;
+            Shizuku.bindUserService(serviceArgs,serviceConnection);
+            showAccess();
+        }catch(RuntimeException e) {
+            binding=false;
+            notice("Unable to start Shizuku command service: "+message(e));
+        }
+    }
     private boolean ready(){
-        try{return Shizuku.pingBinder()&&Shizuku.checkSelfPermission()==PackageManager.PERMISSION_GRANTED;}
+        try{return shell!=null && Shizuku.pingBinder() &&
+                Shizuku.checkSelfPermission()==PackageManager.PERMISSION_GRANTED;}
         catch(RuntimeException e){return false;}
     }
     private void notice(String s){
@@ -205,7 +241,7 @@ public final class MainActivity extends Activity {
     }
     private interface Work{String run() throws Exception;}
     private void run(int i,Work w){
-        if(!ready()){notice("Connect and authorise Shizuku first.");return;}
+        if(!ready()){bindShell();notice("Authorise Shizuku and connect the command service first.");return;}
         final String pkg=packages[i];
         if(!installed(pkg)){report[i].setText("Package not installed or not visible: "+pkg);return;}
         report[i].setText("Running diagnostic…");
@@ -219,18 +255,13 @@ public final class MainActivity extends Activity {
     }
     private record Cmd(int exit,String output){}
     private Cmd command(String cmd)throws Exception {
-        // Targets are fixed constants, not user input. Shizuku.newProcess is deprecated in favour
-        // of UserService; acceptable for this small trial, replace if it proves worthwhile.
-        ShizukuRemoteProcess p=Shizuku.newProcess(new String[]{"sh","-c",cmd+" 2>&1"},null,null);
-        try{
-            ByteArrayOutputStream buf=new ByteArrayOutputStream();
-            try(InputStream in=p.getInputStream()){
-                byte[] b=new byte[2048];int n;
-                while((n=in.read(b))>=0){buf.write(b,0,n);if(buf.size()>64000)break;}
-            }
-            int code=p.waitFor();
-            return new Cmd(code,buf.toString(StandardCharsets.UTF_8));
-        }finally{p.destroy();}
+        // Commands are revalidated inside ShellService; no arbitrary input accepted.
+        ITrialShell svc=shell;
+        if(svc==null)throw new IllegalStateException("Shizuku user service not connected");
+        String reply=svc.exec(cmd);
+        int i=reply.indexOf('\n');
+        if(i<=0)throw new IllegalStateException("Malformed command result");
+        return new Cmd(Integer.parseInt(reply.substring(0,i)),reply.substring(i+1));
     }
     private boolean exempt(String pkg)throws Exception{
         Cmd c=command("cmd deviceidle whitelist");

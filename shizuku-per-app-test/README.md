@@ -11,7 +11,7 @@
 - All shell commands use a hardcoded allowlist; no arbitrary command runner.
 - Shizuku shell access varies across Samsung/Android versions; errors and no-ops are reported.
 - Camera is commonly already optimised. A non-change is a useful result.
-- Shizuku's `newProcess` is deprecated; migration to UserService if future experiments warrant it.
+- Uses Shizuku UserService over AIDL; commands are allowlisted in the privileged service.
 - No automatic tracking of camera frames/Lightroom performance. Time the same task under comparable conditions; enter seconds manually.
 - Before uninstalling the app, **restore** any active trial exemptions. Uninstalling does not reliably revert external system settings.
 
